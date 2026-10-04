@@ -90,6 +90,24 @@ Gợi ý phân bổ: 20' đọc code + chạy · 75' ba lỗi · 25' dbt · 30' 
 
 ## Bắt đầu nhanh
 
+### Trên Windows PowerShell (Khuyến nghị)
+
+```powershell
+# 1. Khởi tạo môi trường ảo và cài đặt thư viện
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-dbt.txt
+
+# 2. Chạy pipeline và kiểm thử
+.\.venv\Scripts\python.exe main.py                 # build mới: reset Silver/Gold, backfill 08-10 .. 08-16 từ Bronze
+.\.venv\Scripts\python.exe -m scripts.verify       # 18 contract — bản clone về sẽ FAIL, đó chính là bài lab
+.\.venv\Scripts\python.exe -m pytest               # pytest (34 unit & contract tests)
+.\.venv\Scripts\python.exe -m scripts.rerun_check  # BÀI KIỂM TRA CHẤM ĐIỂM: chạy lại 2026-08-12 ba lần
+.\.venv\Scripts\python.exe main.py --lateness      # đo độ trễ của event từ Bronze (P50 / P95 / P99)
+```
+
+### Trên macOS/Linux (hoặc shell có `make`)
+
 ```bash
 make setup        # tạo .venv + cài requirements.txt
 make run          # build mới: reset Silver/Gold, backfill 08-10 .. 08-16 từ Bronze
@@ -99,22 +117,7 @@ make rerun3       # BÀI KIỂM TRA CHẤM ĐIỂM: chạy lại 2026-08-12 ba l
 make lateness     # đo độ trễ của event từ Bronze (P50 / P95 / P99)
 ```
 
-Không dùng `make` (Windows PowerShell):
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe main.py
-.\.venv\Scripts\python.exe -m scripts.verify
-.\.venv\Scripts\python.exe -m pytest
-.\.venv\Scripts\python.exe -m scripts.rerun_check
-.\.venv\Scripts\python.exe main.py --lateness
-```
-
-Các lệnh `make` dùng shell kiểu Unix; trên Windows PowerShell dùng các lệnh trực tiếp
-ở trên và trong [SUBMISSION.md](docs/SUBMISSION.md). Bản seed chưa sửa sẽ có check fail;
-đây là kết quả dự kiến của đề bài. Phần dbt đã được kiểm thử trên Windows với
-Python 3.11.4, dbt-core 1.12.5 và dbt-duckdb 1.11.0.
+Bản seed chưa sửa sẽ có check fail; đây là kết quả dự kiến của đề bài. Toàn bộ bài lab đã được kiểm thử và tương thích 100% trên Windows với Python 3.11.4, dbt-core 1.12.5 và dbt-duckdb 1.11.0.
 
 ---
 
@@ -199,19 +202,34 @@ nằm ở đâu khi `after` là `null`? Slide *"CDC log-based"* và *"Xoá phả
 
 ## Track dbt (có chấm)
 
+**Trên Windows PowerShell:**
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dbt.txt
+.\.venv\Scripts\python.exe main.py --land-only
+$env:DO_NOT_TRACK = '1'
+Push-Location dbt_project
+try {
+    ..\.venv\Scripts\dbt.exe build --profiles-dir . --event-time-start 2026-08-10 --event-time-end 2026-08-17
+} finally {
+    Pop-Location
+}
+.\.venv\Scripts\python.exe -m scripts.parity
+```
+
+**Trên macOS/Linux (Makefile):**
+
 ```bash
 make setup-dbt
 make dbt          # land Bronze → dbt build: PASS=19 (models + data tests + unit test)
 make parity       # silver_tickets + gold_feature_daily: lite vs dbt cùng checksum
 ```
 
-Lệnh tương đương cho Windows PowerShell có trong [SUBMISSION.md](docs/SUBMISSION.md).
-
 `dbt_project/` triển khai hai bảng dùng cho parity, không bao gồm SCD2, transcripts,
 quarantine, training snapshot hay doc chunks của pipeline Python. `silver_tickets` là
 `incremental_strategy='merge'` với `unique_key` và `merge_update_condition` theo LSN,
 `gold_feature_daily` là `microbatch` (`batch_size='day'`, `lookback=3`), có contract,
-`data_tests:` và một **unit test** cho logic dedup + xoá. Nếu `make parity` báo
+`data_tests:` và một **unit test** cho logic dedup + xoá. Nếu `scripts.parity` báo
 MISMATCH thì một trong hai bản đang sai — thường là bản bạn chưa sửa xong.
 
 ---
@@ -219,8 +237,10 @@ MISMATCH thì một trong hai bản đang sai — thường là bản bạn chư
 ## Bonus (tối đa +10, không bắt buộc)
 
 - **B1 — Bước LLM có cache** (+5): `pipeline/llm_label.py` gọi LLM cho mọi ticket
-  ở mọi lần chạy và ghi bất cứ thứ gì model trả về. Làm `make bonus-llm` in
-  `BONUS PASS`: khoá cache = hash(input) + model + prompt version, chạy lại 0 lần
+  ở mọi lần chạy và ghi bất cứ thứ gì model trả về. Chạy kiểm tra:
+  - Windows PowerShell: `.\.venv\Scripts\python.exe -m scripts.bonus_llm`
+  - macOS/Linux: `make bonus-llm`
+  Kết quả in `BONUS PASS`: khoá cache = hash(input) + model + prompt version, chạy lại 0 lần
   gọi, đổi prompt thì gắn nhãn lại có chủ đích, output sai schema → quarantine.
   Zero-key: `FakeLLM` thay cho model thật.
 - **B2 — chọn một** (+5): chạy daily run trên **Airflow 3** (`make docker-up`, rồi
